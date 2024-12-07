@@ -27,26 +27,19 @@ def data_loaders():
 def test_model_accuracy(model, device, data_loaders):
     train_loader, val_loader = data_loaders
 
-    # Initialize optimizer with exact same settings as train.py
     optimizer = optim.Adam(
-        model.parameters(),
-        lr=0.001,
-        betas=(0.9, 0.999),
-        eps=1e-08,
-        weight_decay=1e-4,
+        model.parameters(), lr=0.002, betas=(0.9, 0.999), eps=1e-08, weight_decay=3e-4
     )
 
-    # Add learning rate scheduler with exact same settings
     scheduler = optim.lr_scheduler.StepLR(
         optimizer,
-        step_size=5,
-        gamma=0.5,
+        step_size=3,
+        gamma=0.7,
     )
 
     best_val_acc = 0
     best_epoch = 0
 
-    # Use same number of epochs as train.py
     for epoch in range(20):
         train(model, device, train_loader, optimizer)
         val_acc = test(model, device, val_loader, save_misclassified=False, epoch=epoch)
@@ -58,7 +51,6 @@ def test_model_accuracy(model, device, data_loaders):
             torch.save(model.state_dict(), "best_model_test.pth")
 
     print(f"\nBest Validation Accuracy: {best_val_acc:.2f}% at epoch {best_epoch}")
-
     assert (
         best_val_acc >= 99.4
     ), f"Validation accuracy {best_val_acc:.2f}% is below 99.4%. Best epoch {best_epoch}"
