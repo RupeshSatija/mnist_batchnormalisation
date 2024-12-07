@@ -40,23 +40,23 @@ class Net(nn.Module):
     def __init__(self):
         super(Net, self).__init__()
         # First block - reduced initial channels
-        self.conv1 = nn.Conv2d(1, 8, 3, padding=1)
-        self.bn1 = nn.BatchNorm2d(8)
-        self.conv2 = nn.Conv2d(8, 16, 3, padding=1)
-        self.bn2 = nn.BatchNorm2d(16)
+        self.conv1 = nn.Conv2d(1, 10, 3, padding=1)
+        self.bn1 = nn.BatchNorm2d(10)
+        self.conv2 = nn.Conv2d(10, 20, 3, padding=1)
+        self.bn2 = nn.BatchNorm2d(20)
         self.pool1 = nn.MaxPool2d(2, 2)
-        self.dropout1 = nn.Dropout2d(0.08)  # Reduced dropout
+        self.dropout1 = nn.Dropout2d(0.05)  # Reduced dropout
 
         # Second block - reduced channels
-        self.conv3 = nn.Conv2d(16, 24, 3, padding=1)
-        self.bn3 = nn.BatchNorm2d(24)
-        self.conv4 = nn.Conv2d(24, 32, 3, padding=1)
-        self.bn4 = nn.BatchNorm2d(32)
+        self.conv3 = nn.Conv2d(20, 30, 3, padding=1)
+        self.bn3 = nn.BatchNorm2d(30)
+        self.conv4 = nn.Conv2d(30, 40, 3, padding=1)
+        self.bn4 = nn.BatchNorm2d(40)
         self.pool2 = nn.MaxPool2d(2, 2)
-        self.dropout2 = nn.Dropout2d(0.08)
+        self.dropout2 = nn.Dropout2d(0.05)
 
         # Final block - now using GAP
-        self.conv5 = nn.Conv2d(32, 10, 1)  # 1x1 convolution to get 10 channels
+        self.conv5 = nn.Conv2d(40, 10, 1)  # 1x1 convolution to get 10 channels
         self.gap = nn.AdaptiveAvgPool2d(1)  # Global Average Pooling layer
 
     def forward(self, x):
@@ -158,17 +158,17 @@ def get_train_val_loaders(batch_size, use_cuda, train_size=None):
     train_transform = transforms.Compose(
         [
             # Reduced rotation to 7 degrees max
-            transforms.RandomRotation((-5, 5), fill=0),
+            transforms.RandomRotation((-7, 7), fill=0),
             transforms.RandomAffine(
                 degrees=0,
                 translate=(0.1, 0.1),  # Slight translation
-                scale=(0.9, 1.1),  # More conservative scale
-                shear=(-5, 5),  # Reduced shear
+                scale=(0.95, 1.05),  # More conservative scale
+                shear=(-7, 7),  # Reduced shear
                 fill=0,
             ),
             transforms.ToTensor(),
             transforms.Normalize((0.1307,), (0.3081,)),
-            transforms.RandomErasing(p=0.2, scale=(0.02, 0.1)),
+            transforms.RandomErasing(p=0.1, scale=(0.02, 0.08)),
         ]
     )
 
@@ -241,17 +241,17 @@ def main():
     # Initialize optimizer with Adam instead of SGD
     optimizer = optim.Adam(
         model.parameters(),
-        lr=0.002,  # Standard Adam learning rate
+        lr=0.003,  # Standard Adam learning rate
         betas=(0.9, 0.999),  # Default Adam betas
         eps=1e-08,  # Default epsilon
-        weight_decay=3e-4,
+        weight_decay=1e-4,
     )
 
     # Modified learning rate scheduler for Adam
     scheduler = optim.lr_scheduler.StepLR(
         optimizer,
-        step_size=3,  # Increased step size for Adam
-        gamma=0.7,  # Less aggressive decay for Adam
+        step_size=4,  # Increased step size for Adam
+        gamma=0.6,  # Less aggressive decay for Adam
     )
 
     # Training loop
