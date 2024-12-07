@@ -21,30 +21,25 @@ from tqdm import tqdm  # Add this import
 class Net(nn.Module):
     def __init__(self):
         super(Net, self).__init__()
-        # First block
-        self.conv1 = nn.Conv2d(1, 32, 3, padding=1)
-        self.bn1 = nn.BatchNorm2d(32)
-        self.conv2 = nn.Conv2d(32, 64, 3, padding=1)
-        self.bn2 = nn.BatchNorm2d(64)
+        # First block - reduced initial channels
+        self.conv1 = nn.Conv2d(1, 8, 3, padding=1)  # Changed from 32 to 8
+        self.bn1 = nn.BatchNorm2d(8)
+        self.conv2 = nn.Conv2d(8, 16, 3, padding=1)  # Changed from 64 to 16
+        self.bn2 = nn.BatchNorm2d(16)
         self.pool1 = nn.MaxPool2d(2, 2)
-        self.dropout1 = nn.Dropout2d(0.25)
+        self.dropout1 = nn.Dropout2d(0.1)  # Reduced dropout
 
-        # Second block
-        self.conv3 = nn.Conv2d(64, 128, 3, padding=1)
-        self.bn3 = nn.BatchNorm2d(128)
-        self.conv4 = nn.Conv2d(128, 256, 3, padding=1)
-        self.bn4 = nn.BatchNorm2d(256)
+        # Second block - reduced channels
+        self.conv3 = nn.Conv2d(16, 16, 3, padding=1)  # Changed from 128 to 16
+        self.bn3 = nn.BatchNorm2d(16)
+        self.conv4 = nn.Conv2d(16, 32, 3, padding=1)  # Changed from 256 to 32
+        self.bn4 = nn.BatchNorm2d(32)
         self.pool2 = nn.MaxPool2d(2, 2)
-        self.dropout2 = nn.Dropout2d(0.25)
+        self.dropout2 = nn.Dropout2d(0.1)
 
-        # Final blocks
-        self.conv5 = nn.Conv2d(256, 512, 3)
-        self.bn5 = nn.BatchNorm2d(512)
-        self.dropout3 = nn.Dropout2d(0.25)
-        self.conv6 = nn.Conv2d(512, 1024, 3)
-        self.bn6 = nn.BatchNorm2d(1024)
-        self.conv7 = nn.Conv2d(1024, 10, 3)
-        self.bn7 = nn.BatchNorm2d(10)
+        # Final block - now using GAP
+        self.conv5 = nn.Conv2d(32, 10, 1)  # 1x1 convolution to get 10 channels
+        self.gap = nn.AdaptiveAvgPool2d(1)  # Global Average Pooling layer
 
     def forward(self, x):
         # First block
@@ -59,12 +54,10 @@ class Net(nn.Module):
         x = self.pool2(x)
         x = self.dropout2(x)
 
-        # Final blocks
-        x = F.relu(self.bn5(self.conv5(x)))
-        x = self.dropout3(x)
-        x = F.relu(self.bn6(self.conv6(x)))
-        x = F.relu(self.bn7(self.conv7(x)))
-        x = x.view(-1, 10)
+        # Final block with GAP
+        x = self.conv5(x)
+        x = self.gap(x)
+        x = x.view(-1, 10)  # Safe to use -1 here as GAP ensures fixed dimensions
         return F.log_softmax(x, dim=1)
 
 
@@ -119,7 +112,7 @@ def main():
 
     # Training hyperparameters
     batch_size = 128
-    epochs = 1
+    epochs = 10
     kwargs = {"num_workers": 1, "pin_memory": True} if use_cuda else {}
 
     # Data loaders
