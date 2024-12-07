@@ -9,10 +9,12 @@ Original file is located at
 
 from __future__ import print_function
 
+import numpy as np
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
 import torch.optim as optim
+from torch.utils.data import Subset
 from torchsummary import summary
 from torchvision import datasets, transforms
 from tqdm import tqdm  # Add this import
@@ -30,9 +32,9 @@ class Net(nn.Module):
         self.dropout1 = nn.Dropout2d(0.1)  # Reduced dropout
 
         # Second block - reduced channels
-        self.conv3 = nn.Conv2d(16, 16, 3, padding=1)  # Changed from 128 to 16
-        self.bn3 = nn.BatchNorm2d(16)
-        self.conv4 = nn.Conv2d(16, 32, 3, padding=1)  # Changed from 256 to 32
+        self.conv3 = nn.Conv2d(16, 32, 3, padding=1)  # Changed from 128 to 16
+        self.bn3 = nn.BatchNorm2d(32)
+        self.conv4 = nn.Conv2d(32, 32, 3, padding=1)  # Changed from 256 to 32
         self.bn4 = nn.BatchNorm2d(32)
         self.pool2 = nn.MaxPool2d(2, 2)
         self.dropout2 = nn.Dropout2d(0.1)
@@ -65,6 +67,7 @@ def train(model, device, train_loader, optimizer, epoch):
     model.train()
     pbar = tqdm(train_loader)
     for batch_idx, (data, target) in enumerate(pbar):
+        # print(f"batch=>{batch_idx} len=> {len(data)}")
         data, target = data.to(device), target.to(device)
         optimizer.zero_grad()
         output = model(data)
@@ -82,24 +85,64 @@ def test(model, device, test_loader):
         for data, target in test_loader:
             data, target = data.to(device), target.to(device)
             output = model(data)
-            test_loss += F.nll_loss(
-                output, target, reduction="sum"
-            ).item()  # sum up batch loss
-            pred = output.argmax(
-                dim=1, keepdim=True
-            )  # get the index of the max log-probability
+            test_loss += F.nll_loss(output, target, reduction="sum").item()
+            pred = output.argmax(dim=1, keepdim=True)
             correct += pred.eq(target.view_as(pred)).sum().item()
 
     test_loss /= len(test_loader.dataset)
+    accuracy = 100.0 * correct / len(test_loader.dataset)
 
     print(
         "\nTest set: Average loss: {:.4f}, Accuracy: {}/{} ({:.0f}%)\n".format(
             test_loss,
             correct,
             len(test_loader.dataset),
-            100.0 * correct / len(test_loader.dataset),
+            accuracy,
         )
     )
+
+    return accuracy
+
+
+def get_train_val_loaders(batch_size, use_cuda, train_size=None):
+    kwargs = {"num_workers": 1, "pin_memory": True} if use_cuda else {}
+
+    # Get full training dataset
+    full_train_dataset = datasets.MNIST(
+        "../data",
+        train=True,
+        download=True,
+        transform=transforms.Compose(
+            [transforms.ToTensor(), transforms.Normalize((0.1307,), (0.3081,))]
+        ),
+    )
+
+    # Calculate split sizes
+    total_size = len(full_train_dataset)
+    if train_size is None:  # If train_size not specified, use 80% of data
+        train_size = int(0.8 * total_size)
+    val_size = total_size - train_size
+
+    # Create indices for the split
+    indices = list(range(total_size))
+    np.random.shuffle(indices)
+    train_indices = indices[:train_size]
+    val_indices = indices[train_size : train_size + val_size]
+
+    # Create train and validation datasets
+    train_dataset = Subset(full_train_dataset, train_indices)
+    val_dataset = Subset(full_train_dataset, val_indices)
+
+    # Create data loaders
+    train_loader = torch.utils.data.DataLoader(
+        train_dataset, batch_size=batch_size, shuffle=True, **kwargs
+    )
+
+    val_loader = torch.utils.data.DataLoader(
+        val_dataset, batch_size=batch_size, shuffle=False, **kwargs
+    )
+
+    return train_loader, val_loader
 
 
 def main():
@@ -112,36 +155,10 @@ def main():
 
     # Training hyperparameters
     batch_size = 128
-    epochs = 10
-    kwargs = {"num_workers": 1, "pin_memory": True} if use_cuda else {}
+    epochs = 20
 
-    # Data loaders
-    train_loader = torch.utils.data.DataLoader(
-        datasets.MNIST(
-            "../data",
-            train=True,
-            download=True,
-            transform=transforms.Compose(
-                [transforms.ToTensor(), transforms.Normalize((0.1307,), (0.3081,))]
-            ),
-        ),
-        batch_size=batch_size,
-        shuffle=True,
-        **kwargs,
-    )
-
-    test_loader = torch.utils.data.DataLoader(
-        datasets.MNIST(
-            "../data",
-            train=False,
-            transform=transforms.Compose(
-                [transforms.ToTensor(), transforms.Normalize((0.1307,), (0.3081,))]
-            ),
-        ),
-        batch_size=batch_size,
-        shuffle=True,
-        **kwargs,
-    )
+    # Replace the data loader creation with new function
+    train_loader, val_loader = get_train_val_loaders(batch_size, use_cuda)
 
     # Initialize model and move to device
     model = Net().to(device)
@@ -154,8 +171,9 @@ def main():
 
     # Training loop
     for epoch in range(1, epochs + 1):
+        # print(f"epoch => {epoch}")
         train(model, device, train_loader, optimizer, epoch)
-        test(model, device, test_loader)
+        test(model, device, val_loader)
 
 
 if __name__ == "__main__":

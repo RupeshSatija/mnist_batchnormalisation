@@ -2,3 +2,5 @@ torch
 torchvision
 tqdm
 torchsummary
+pytest
+numpy
