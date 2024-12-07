@@ -9,6 +9,11 @@ Original file is located at
 
 from __future__ import print_function
 
+import logging
+import os
+import sys
+
+import matplotlib.pyplot as plt
 import numpy as np
 import torch
 import torch.nn as nn
@@ -19,25 +24,36 @@ from torchsummary import summary
 from torchvision import datasets, transforms
 from tqdm import tqdm  # Add this import
 
+# Configure logging
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s - %(levelname)s - %(message)s",
+    handlers=[
+        logging.FileHandler("training_logs.txt"),
+        logging.StreamHandler(sys.stdout),
+    ],
+)
+logger = logging.getLogger(__name__)
+
 
 class Net(nn.Module):
     def __init__(self):
         super(Net, self).__init__()
         # First block - reduced initial channels
-        self.conv1 = nn.Conv2d(1, 8, 3, padding=1)  # Changed from 32 to 8
-        self.bn1 = nn.BatchNorm2d(8)
-        self.conv2 = nn.Conv2d(8, 16, 3, padding=1)  # Changed from 64 to 16
+        self.conv1 = nn.Conv2d(1, 10, 3, padding=1)
+        self.bn1 = nn.BatchNorm2d(10)
+        self.conv2 = nn.Conv2d(10, 16, 3, padding=1)
         self.bn2 = nn.BatchNorm2d(16)
         self.pool1 = nn.MaxPool2d(2, 2)
-        self.dropout1 = nn.Dropout2d(0.1)  # Reduced dropout
+        self.dropout1 = nn.Dropout2d(0.15)  # Reduced dropout
 
         # Second block - reduced channels
-        self.conv3 = nn.Conv2d(16, 32, 3, padding=1)  # Changed from 128 to 16
-        self.bn3 = nn.BatchNorm2d(32)
-        self.conv4 = nn.Conv2d(32, 32, 3, padding=1)  # Changed from 256 to 32
+        self.conv3 = nn.Conv2d(16, 24, 3, padding=1)
+        self.bn3 = nn.BatchNorm2d(24)
+        self.conv4 = nn.Conv2d(24, 32, 3, padding=1)
         self.bn4 = nn.BatchNorm2d(32)
         self.pool2 = nn.MaxPool2d(2, 2)
-        self.dropout2 = nn.Dropout2d(0.1)
+        self.dropout2 = nn.Dropout2d(0.15)
 
         # Final block - now using GAP
         self.conv5 = nn.Conv2d(32, 10, 1)  # 1x1 convolution to get 10 channels
@@ -63,43 +79,71 @@ class Net(nn.Module):
         return F.log_softmax(x, dim=1)
 
 
-def train(model, device, train_loader, optimizer, epoch):
+def train(model, device, train_loader, optimizer):
     model.train()
     pbar = tqdm(train_loader)
     for batch_idx, (data, target) in enumerate(pbar):
-        # print(f"batch=>{batch_idx} len=> {len(data)}")
         data, target = data.to(device), target.to(device)
         optimizer.zero_grad()
         output = model(data)
         loss = F.nll_loss(output, target)
         loss.backward()
         optimizer.step()
-        pbar.set_description(desc=f"loss={loss.item()} batch_id={batch_idx}")
+        desc = f"loss={loss.item():.4f} batch_id={batch_idx}"
+        pbar.set_description(desc)
+        logger.info(f"Training - Batch: {batch_idx}, Loss: {loss.item():.4f}")
 
 
-def test(model, device, test_loader):
+def test(model, device, test_loader, save_misclassified=False, epoch=None):
     model.eval()
     test_loss = 0
     correct = 0
+    misclassified_images = []
+
+    # Create directory for misclassified images if it doesn't exist
+    if save_misclassified and epoch is not None:
+        save_dir = f"misclassified_images_{epoch}"
+        os.makedirs(save_dir, exist_ok=True)
+
     with torch.no_grad():
-        for data, target in test_loader:
+        for batch_idx, (data, target) in enumerate(test_loader):
             data, target = data.to(device), target.to(device)
             output = model(data)
             test_loss += F.nll_loss(output, target, reduction="sum").item()
             pred = output.argmax(dim=1, keepdim=True)
+
+            # Find misclassified images
+            incorrect_mask = ~pred.eq(target.view_as(pred)).squeeze()
+            if save_misclassified and epoch is not None and incorrect_mask.any():
+                misclassified_data = data[incorrect_mask]
+                misclassified_targets = target[incorrect_mask]
+                misclassified_preds = pred[incorrect_mask]
+
+                # Save misclassified images
+                for idx, (img, true_label, pred_label) in enumerate(
+                    zip(misclassified_data, misclassified_targets, misclassified_preds)
+                ):
+                    img_np = img.cpu().numpy().squeeze()
+                    plt.figure(figsize=(3, 3))
+                    plt.imshow(img_np, cmap="gray")
+                    plt.title(f"True: {true_label.item()}, Pred: {pred_label.item()}")
+                    plt.axis("off")
+                    plt.savefig(
+                        os.path.join(
+                            save_dir,
+                            f"misclassified_{batch_idx}_{idx}_true{true_label.item()}_pred{pred_label.item()}.png",
+                        )
+                    )
+                    plt.close()
+
             correct += pred.eq(target.view_as(pred)).sum().item()
 
     test_loss /= len(test_loader.dataset)
     accuracy = 100.0 * correct / len(test_loader.dataset)
 
-    print(
-        "\nTest set: Average loss: {:.4f}, Accuracy: {}/{} ({:.0f}%)\n".format(
-            test_loss,
-            correct,
-            len(test_loader.dataset),
-            accuracy,
-        )
-    )
+    log_msg = f"\nEpoch {epoch} Test set: Average loss: {test_loss:.4f}, Accuracy: {correct}/{len(test_loader.dataset)} ({accuracy:.2f}%)\n"
+    logger.info(log_msg)
+    print(log_msg)
 
     return accuracy
 
@@ -107,14 +151,37 @@ def test(model, device, test_loader):
 def get_train_val_loaders(batch_size, use_cuda, train_size=None):
     kwargs = {"num_workers": 1, "pin_memory": True} if use_cuda else {}
 
-    # Get full training dataset
+    # Enhanced transform with augmentation for training
+    train_transform = transforms.Compose(
+        [
+            # Reduced rotation to 7 degrees max
+            transforms.RandomRotation((-7.0, 7.0), fill=0),
+            transforms.RandomAffine(
+                degrees=0,
+                translate=(0.1, 0.1),  # Slight translation
+                scale=(0.9, 1.1),  # More conservative scale
+                shear=(-10, 10),  # Reduced shear
+                fill=0,
+            ),
+            transforms.RandomPerspective(distortion_scale=0.2, p=0.5, fill=0),
+            transforms.ToTensor(),
+            transforms.Normalize((0.1307,), (0.3081,)),
+            transforms.RandomErasing(p=0.2, scale=(0.02, 0.15)),
+        ]
+    )
+
+    # Regular transform for validation (no augmentation)
+    val_transform = transforms.Compose(
+        [transforms.ToTensor(), transforms.Normalize((0.1307,), (0.3081,))]
+    )
+
+    # Get datasets with different transforms
     full_train_dataset = datasets.MNIST(
-        "../data",
-        train=True,
-        download=True,
-        transform=transforms.Compose(
-            [transforms.ToTensor(), transforms.Normalize((0.1307,), (0.3081,))]
-        ),
+        "../data", train=True, download=True, transform=train_transform
+    )
+
+    full_val_dataset = datasets.MNIST(
+        "../data", train=True, download=True, transform=val_transform
     )
 
     # Calculate split sizes
@@ -131,7 +198,7 @@ def get_train_val_loaders(batch_size, use_cuda, train_size=None):
 
     # Create train and validation datasets
     train_dataset = Subset(full_train_dataset, train_indices)
-    val_dataset = Subset(full_train_dataset, val_indices)
+    val_dataset = Subset(full_val_dataset, val_indices)
 
     # Create data loaders
     train_loader = torch.utils.data.DataLoader(
@@ -154,26 +221,45 @@ def main():
     device = torch.device("cuda" if use_cuda else "cpu")
 
     # Training hyperparameters
-    batch_size = 128
+    batch_size = 64
     epochs = 20
 
-    # Replace the data loader creation with new function
     train_loader, val_loader = get_train_val_loaders(batch_size, use_cuda)
-
-    # Initialize model and move to device
     model = Net().to(device)
 
     # Print model summary
     summary(model, input_size=(1, 28, 28))
 
-    # Initialize optimizer
-    optimizer = optim.SGD(model.parameters(), lr=0.01, momentum=0.9)
+    # Initialize optimizer with Adam instead of SGD
+    optimizer = optim.Adam(
+        model.parameters(),
+        lr=0.001,  # Standard Adam learning rate
+        betas=(0.9, 0.999),  # Default Adam betas
+        eps=1e-08,  # Default epsilon
+        weight_decay=1e-4,  # L2 regularization
+    )
+
+    # Modified learning rate scheduler for Adam
+    scheduler = optim.lr_scheduler.StepLR(
+        optimizer,
+        step_size=5,  # Increased step size for Adam
+        gamma=0.5,  # Less aggressive decay for Adam
+    )
 
     # Training loop
+    best_accuracy = 0
     for epoch in range(1, epochs + 1):
-        # print(f"epoch => {epoch}")
-        train(model, device, train_loader, optimizer, epoch)
-        test(model, device, val_loader)
+        train(model, device, train_loader, optimizer)
+        accuracy = test(model, device, val_loader, save_misclassified=True, epoch=epoch)
+        scheduler.step()
+
+        # Save best model
+        if accuracy > best_accuracy:
+            best_accuracy = accuracy
+            torch.save(model.state_dict(), "best_model.pth")
+
+        # Print current learning rate
+        print(f"Epoch: {epoch}, Current LR: {scheduler.get_last_lr()[0]}")
 
 
 if __name__ == "__main__":

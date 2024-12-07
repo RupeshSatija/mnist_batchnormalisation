@@ -4,3 +4,4 @@ tqdm
 torchsummary
 pytest
 numpy
+matplotlib
