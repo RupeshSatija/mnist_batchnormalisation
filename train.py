@@ -12,6 +12,7 @@ from __future__ import print_function
 import logging
 import os
 import sys
+from datetime import datetime
 
 import matplotlib.pyplot as plt
 import numpy as np
@@ -24,12 +25,16 @@ from torchsummary import summary
 from torchvision import datasets, transforms
 from tqdm import tqdm  # Add this import
 
-# Configure logging
+# Create logs directory if it doesn't exist
+os.makedirs("logs", exist_ok=True)
+
+# Configure logging with timestamp in filename
+timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
 logging.basicConfig(
     level=logging.INFO,
     format="%(asctime)s - %(levelname)s - %(message)s",
     handlers=[
-        logging.FileHandler("training_logs.txt"),
+        logging.FileHandler(f"logs/training_{timestamp}.txt"),
         logging.StreamHandler(sys.stdout),
     ],
 )
@@ -213,6 +218,12 @@ def get_train_val_loaders(batch_size, use_cuda, train_size=None):
 
 
 def main():
+    logger.info("Starting training with configuration:")
+    logger.info(f"Device: {'cuda' if torch.cuda.is_available() else 'cpu'}")
+    logger.info(f"Batch size: {batch_size}")
+    logger.info(f"Epochs: {epochs}")
+    logger.info("Model architecture:")
+
     # Set random seed for reproducibility
     torch.manual_seed(1)
 
@@ -249,17 +260,19 @@ def main():
     # Training loop
     best_accuracy = 0
     for epoch in range(1, epochs + 1):
+        logger.info(f"\nEpoch {epoch}/{epochs}")
+        logger.info(f"Learning rate: {scheduler.get_last_lr()[0]}")
+
         train(model, device, train_loader, optimizer)
         accuracy = test(model, device, val_loader, save_misclassified=True, epoch=epoch)
         scheduler.step()
 
-        # Save best model
         if accuracy > best_accuracy:
             best_accuracy = accuracy
             torch.save(model.state_dict(), "best_model.pth")
+            logger.info(f"New best accuracy: {accuracy:.2f}%")
 
-        # Print current learning rate
-        print(f"Epoch: {epoch}, Current LR: {scheduler.get_last_lr()[0]}")
+        logger.info(f"Epoch: {epoch}, Current LR: {scheduler.get_last_lr()[0]}")
 
 
 if __name__ == "__main__":
