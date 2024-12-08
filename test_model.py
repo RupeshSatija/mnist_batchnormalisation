@@ -29,16 +29,16 @@ def test_model_accuracy(model, device, data_loaders):
 
     optimizer = optim.Adam(
         model.parameters(),
-        lr=0.003,  # Standard Adam learning rate
-        betas=(0.9, 0.999),  # Default Adam betas
-        eps=1e-08,  # Default epsilon
-        weight_decay=1e-4,
+        lr=0.005,
+        betas=(0.9, 0.999),
+        eps=1e-08,
+        weight_decay=1e-5,
     )
 
     scheduler = optim.lr_scheduler.StepLR(
         optimizer,
-        step_size=4,
-        gamma=0.6,
+        step_size=2,
+        gamma=0.85,
     )
 
     best_val_acc = 0

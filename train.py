@@ -39,43 +39,56 @@ from tqdm import tqdm  # Add this import
 class Net(nn.Module):
     def __init__(self):
         super(Net, self).__init__()
-        # First block - reduced initial channels
-        self.conv1 = nn.Conv2d(1, 10, 3, padding=1)
-        self.bn1 = nn.BatchNorm2d(10)
-        self.conv2 = nn.Conv2d(10, 20, 3, padding=1)
-        self.bn2 = nn.BatchNorm2d(20)
+
+        # First block
+        self.conv1a = nn.Conv2d(1, 8, 3, padding=1)  # 16->8
+        self.bn1a = nn.BatchNorm2d(8)
+        self.conv1b = nn.Conv2d(8, 16, 3, padding=1)  # 32->16
+        self.bn1b = nn.BatchNorm2d(16)
+        self.conv1c = nn.Conv2d(16, 10, 1)  # 1x1 reduction
+        self.bn1c = nn.BatchNorm2d(10)
         self.pool1 = nn.MaxPool2d(2, 2)
-        self.dropout1 = nn.Dropout2d(0.05)  # Reduced dropout
+        self.dropout1 = nn.Dropout2d(0.01)
 
-        # Second block - reduced channels
-        self.conv3 = nn.Conv2d(20, 30, 3, padding=1)
-        self.bn3 = nn.BatchNorm2d(30)
-        self.conv4 = nn.Conv2d(30, 40, 3, padding=1)
-        self.bn4 = nn.BatchNorm2d(40)
+        # Second block
+        self.conv2a = nn.Conv2d(10, 16, 3, padding=1)  # 32->16
+        self.bn2a = nn.BatchNorm2d(16)
+        self.conv2b = nn.Conv2d(16, 24, 3, padding=1)  # 64->24
+        self.bn2b = nn.BatchNorm2d(24)
+        self.conv2c = nn.Conv2d(24, 16, 1)  # 1x1 reduction
+        self.bn2c = nn.BatchNorm2d(16)
         self.pool2 = nn.MaxPool2d(2, 2)
-        self.dropout2 = nn.Dropout2d(0.05)
+        self.dropout2 = nn.Dropout2d(0.01)
 
-        # Final block - now using GAP
-        self.conv5 = nn.Conv2d(40, 10, 1)  # 1x1 convolution to get 10 channels
-        self.gap = nn.AdaptiveAvgPool2d(1)  # Global Average Pooling layer
+        # Final block
+        self.conv3a = nn.Conv2d(16, 24, 3, padding=1)  # 64->24
+        self.bn3a = nn.BatchNorm2d(24)
+        self.conv3b = nn.Conv2d(24, 16, 1)  # 1x1 reduction
+        self.bn3b = nn.BatchNorm2d(16)
+        self.conv3c = nn.Conv2d(16, 10, 1)  # Final 1x1
+        self.gap = nn.AdaptiveAvgPool2d(1)
 
     def forward(self, x):
         # First block
-        x = F.relu(self.bn1(self.conv1(x)))
-        x = F.relu(self.bn2(self.conv2(x)))
+        x = F.relu(self.bn1a(self.conv1a(x)))
+        x = F.relu(self.bn1b(self.conv1b(x)))
+        x = F.relu(self.bn1c(self.conv1c(x)))
         x = self.pool1(x)
         x = self.dropout1(x)
 
         # Second block
-        x = F.relu(self.bn3(self.conv3(x)))
-        x = F.relu(self.bn4(self.conv4(x)))
+        x = F.relu(self.bn2a(self.conv2a(x)))
+        x = F.relu(self.bn2b(self.conv2b(x)))
+        x = F.relu(self.bn2c(self.conv2c(x)))
         x = self.pool2(x)
         x = self.dropout2(x)
 
-        # Final block with GAP
-        x = self.conv5(x)
+        # Final block
+        x = F.relu(self.bn3a(self.conv3a(x)))
+        x = F.relu(self.bn3b(self.conv3b(x)))
+        x = self.conv3c(x)
         x = self.gap(x)
-        x = x.view(-1, 10)  # Safe to use -1 here as GAP ensures fixed dimensions
+        x = x.view(-1, 10)
         return F.log_softmax(x, dim=1)
 
 
@@ -161,14 +174,14 @@ def get_train_val_loaders(batch_size, use_cuda, train_size=None):
             transforms.RandomRotation((-7, 7), fill=0),
             transforms.RandomAffine(
                 degrees=0,
-                translate=(0.1, 0.1),  # Slight translation
-                scale=(0.95, 1.05),  # More conservative scale
-                shear=(-7, 7),  # Reduced shear
+                translate=(0.07, 0.07),  # Slight translation
+                scale=(0.98, 1.02),  # More conservative scale
+                shear=(-3, 3),  # Reduced shear
                 fill=0,
             ),
             transforms.ToTensor(),
             transforms.Normalize((0.1307,), (0.3081,)),
-            transforms.RandomErasing(p=0.1, scale=(0.02, 0.08)),
+            transforms.RandomErasing(p=0.1, scale=(0.02, 0.04)),
         ]
     )
 
@@ -229,7 +242,7 @@ def main():
     device = torch.device("cuda" if use_cuda else "cpu")
 
     # Training hyperparameters
-    batch_size = 128
+    batch_size = 256
     epochs = 20
 
     train_loader, val_loader = get_train_val_loaders(batch_size, use_cuda)
@@ -241,7 +254,7 @@ def main():
     # Initialize optimizer with Adam instead of SGD
     optimizer = optim.Adam(
         model.parameters(),
-        lr=0.003,  # Standard Adam learning rate
+        lr=0.005,  # Standard Adam learning rate
         betas=(0.9, 0.999),  # Default Adam betas
         eps=1e-08,  # Default epsilon
         weight_decay=1e-4,
@@ -250,8 +263,8 @@ def main():
     # Modified learning rate scheduler for Adam
     scheduler = optim.lr_scheduler.StepLR(
         optimizer,
-        step_size=4,  # Increased step size for Adam
-        gamma=0.6,  # Less aggressive decay for Adam
+        step_size=2,  # Increased step size for Adam
+        gamma=0.85,  # Less aggressive decay for Adam
     )
 
     # Training loop
